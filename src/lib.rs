@@ -1,6 +1,5 @@
-use std::fmt::Debug;
-use std::hash::Hash;
-use std::marker::PhantomData;
+use bevy::render::render_resource::encase::internal::WriteInto;
+use bevy::render::view::{ViewUniform, ViewUniformOffset, ViewUniforms};
 use bevy::{
     core_pipeline::{
         core_3d::graph::{Core3d, Node3d},
@@ -25,15 +24,22 @@ use bevy::{
         RenderApp,
     },
 };
-use bevy::render::render_resource::encase::internal::WriteInto;
+use std::fmt::Debug;
+use std::hash::Hash;
+use std::marker::PhantomData;
 
 /// It is generally encouraged to set up post processing effects as a plugin
 pub struct PostProcessPlugin<U: Clone, R: Debug + Hash + PartialEq + Eq + Clone + RenderLabel> {
     post_process_plugin_settings: PostProcessPluginSettings<U, R>,
 }
 
-impl <U: Clone, R: Debug + Hash + PartialEq + Eq + Clone + RenderLabel> PostProcessPlugin<U, R> {
-    pub fn new(shader_path: &'static str, label: R, debug_label: Option<&'static str>, bind_group_layout_label: &'static str) -> Self {
+impl<U: Clone, R: Debug + Hash + PartialEq + Eq + Clone + RenderLabel> PostProcessPlugin<U, R> {
+    pub fn new(
+        shader_path: &'static str,
+        label: R,
+        debug_label: Option<&'static str>,
+        bind_group_layout_label: &'static str,
+    ) -> Self {
         Self {
             post_process_plugin_settings: PostProcessPluginSettings::<U, R> {
                 shader_path,
@@ -41,12 +47,16 @@ impl <U: Clone, R: Debug + Hash + PartialEq + Eq + Clone + RenderLabel> PostProc
                 debug_label,
                 bind_group_layout_label,
                 phantom_data: PhantomData,
-            }
+            },
         }
     }
 }
 
-impl <U: WriteInto + Component + ShaderType + Clone + ExtractComponent, R: Debug + Hash + PartialEq + Eq + Clone + RenderLabel>Plugin for PostProcessPlugin<U, R> {
+impl<
+        U: WriteInto + Component + ShaderType + Clone + ExtractComponent,
+        R: Debug + Hash + PartialEq + Eq + Clone + RenderLabel,
+    > Plugin for PostProcessPlugin<U, R>
+{
     fn build(&self, app: &mut App) {
         app.add_plugins((
             // The settings will be a component that lives in the main world but will
@@ -105,15 +115,19 @@ impl <U: WriteInto + Component + ShaderType + Clone + ExtractComponent, R: Debug
             return;
         };
 
-        let sky_pipeline = SkyPipeline::new(render_app.world_mut(), &self.post_process_plugin_settings);
+        render_app.insert_resource(self.post_process_plugin_settings.clone());
 
         render_app
             // Initialize the pipeline
-            .insert_resource(sky_pipeline);
+            .init_resource::<PostProcessPipeline<U, R>>();
     }
 }
 
-struct PostProcessPluginSettings<U, R: Debug + Hash + PartialEq + Eq + Clone + RenderLabel> where U: Clone {
+#[derive(Resource, Clone)]
+struct PostProcessPluginSettings<U, R: Debug + Hash + PartialEq + Eq + Clone + RenderLabel>
+where
+    U: Clone,
+{
     shader_path: &'static str,
     /// Label that uniquely identifies this pipeline
     label: R,
@@ -126,14 +140,18 @@ struct PostProcessPluginSettings<U, R: Debug + Hash + PartialEq + Eq + Clone + R
 // The post process node used for the render graph
 struct PipelineNode<U, R>(PhantomData<U>, PhantomData<R>);
 
-impl <U, R>FromWorld for PipelineNode<U, R> {
+impl<U, R> FromWorld for PipelineNode<U, R> {
     fn from_world(_world: &mut World) -> Self {
         Self(Default::default(), Default::default())
     }
 }
 
 // The ViewNode trait is required by the ViewNodeRunner
-impl <U: Component + ShaderType + WriteInto, R: Send + Sync + 'static>ViewNode for PipelineNode<U, R> {
+impl<
+        U: Component + ShaderType + WriteInto + Clone,
+        R: Send + Sync + 'static + Hash + Eq + Clone + RenderLabel,
+    > ViewNode for PipelineNode<U, R>
+{
     // The node needs a query to gather data from the ECS in order to do its rendering,
     // but it's not a normal system so we need to define it manually.
     //
@@ -142,6 +160,7 @@ impl <U: Component + ShaderType + WriteInto, R: Send + Sync + 'static>ViewNode f
         &'static ViewTarget,
         // This makes sure the node only runs on cameras with the SkyPipelineSettings component
         &'static U,
+        &'static ViewUniformOffset,
         // As there could be multiple post processing components sent to the GPU (one per camera),
         // we need to get the index of the one that is associated with the current view.
         &'static DynamicUniformIndex<U>,
@@ -158,12 +177,17 @@ impl <U: Component + ShaderType + WriteInto, R: Send + Sync + 'static>ViewNode f
         &self,
         _graph: &mut RenderGraphContext,
         render_context: &mut RenderContext,
-        (view_target, _post_process_settings, settings_index): QueryItem<Self::ViewQuery>,
+        (
+            view_target,
+            _post_process_settings,
+            view_uniform_offset,
+            settings_index,
+        ): QueryItem<Self::ViewQuery>,
         world: &World,
     ) -> Result<(), NodeRunError> {
         // Get the pipeline resource that contains the global data we need
         // to create the render pipeline
-        let post_process_pipeline = world.resource::<SkyPipeline<U, R>>();
+        let post_process_pipeline = world.resource::<PostProcessPipeline<U, R>>();
 
         // The pipeline cache is a cache of all previously created pipelines.
         // It is required to avoid creating a new pipeline each frame,
@@ -182,6 +206,12 @@ impl <U: Component + ShaderType + WriteInto, R: Send + Sync + 'static>ViewNode f
             return Ok(());
         };
 
+        let view_uniforms = world.resource::<ViewUniforms>();
+
+        let Some(view_binding) = view_uniforms.uniforms.binding() else {
+            return Ok(());
+        };
+
         // This will start a new "post process write", obtaining two texture
         // views from the view target - a `source` and a `destination`.
         // `source` is the "current" main texture and you _must_ write into
@@ -191,6 +221,10 @@ impl <U: Component + ShaderType + WriteInto, R: Send + Sync + 'static>ViewNode f
         // the current main texture information to be lost.
         let post_process = view_target.post_process_write();
 
+        let plugin_settings = world
+            .get_resource::<PostProcessPluginSettings<U, R>>()
+            .unwrap();
+
         // The bind_group gets created each frame.
         //
         // Normally, you would create a bind_group in the Queue set,
@@ -199,7 +233,7 @@ impl <U: Component + ShaderType + WriteInto, R: Send + Sync + 'static>ViewNode f
         // The only way to have the correct source/destination for the bind_group
         // is to make sure you get it during the node execution.
         let bind_group = render_context.render_device().create_bind_group(
-            "post_process_bind_group",
+            plugin_settings.bind_group_layout_label,
             &post_process_pipeline.layout,
             // It's important for this to match the BindGroupLayout defined in the SkyPipelinePipeline
             &BindGroupEntries::sequential((
@@ -209,12 +243,13 @@ impl <U: Component + ShaderType + WriteInto, R: Send + Sync + 'static>ViewNode f
                 &post_process_pipeline.sampler,
                 // Set the settings binding
                 settings_binding.clone(),
+                view_binding.clone(),
             )),
         );
 
         // Begin the render pass
         let mut render_pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
-            label: Some("post_process_pass"),
+            label: plugin_settings.debug_label,
             color_attachments: &[Some(RenderPassColorAttachment {
                 // We need to specify the post process destination view here
                 // to make sure we write to the appropriate texture.
@@ -233,7 +268,11 @@ impl <U: Component + ShaderType + WriteInto, R: Send + Sync + 'static>ViewNode f
         // By passing in the index of the post process settings on this view, we ensure
         // that in the event that multiple settings were sent to the GPU (as would be the
         // case with multiple cameras), we use the correct one.
-        render_pass.set_bind_group(0, &bind_group, &[settings_index.index()]);
+        render_pass.set_bind_group(
+            0,
+            &bind_group,
+            &[settings_index.index(), view_uniform_offset.offset],
+        );
         render_pass.draw(0..3, 0..1);
 
         Ok(())
@@ -242,7 +281,7 @@ impl <U: Component + ShaderType + WriteInto, R: Send + Sync + 'static>ViewNode f
 
 // This contains global data used by the render pipeline. This will be created once on startup.
 #[derive(Resource)]
-struct SkyPipeline<U, R> {
+struct PostProcessPipeline<U, R> {
     layout: BindGroupLayout,
     sampler: Sampler,
     pipeline_id: CachedRenderPipelineId,
@@ -250,8 +289,14 @@ struct SkyPipeline<U, R> {
     _render_label: PhantomData<R>,
 }
 
-impl <U: Clone + Send + Sync + ShaderType + 'static, R: Hash + Eq + Clone + RenderLabel> SkyPipeline<U, R> {
-    fn new(world: &mut World, plugin_settings: &PostProcessPluginSettings<U, R>) -> Self {
+impl<U: Clone + Send + Sync + ShaderType + 'static, R: Hash + Eq + Clone + RenderLabel> FromWorld
+    for PostProcessPipeline<U, R>
+{
+    fn from_world(world: &mut World) -> Self {
+        let plugin_settings = world
+            .get_resource::<PostProcessPluginSettings<U, R>>()
+            .unwrap()
+            .clone();
         let render_device = world.resource::<RenderDevice>();
         // We need to define the bind group layout used for our pipeline
         let layout = render_device.create_bind_group_layout(
@@ -266,13 +311,14 @@ impl <U: Clone + Send + Sync + ShaderType + 'static, R: Hash + Eq + Clone + Rend
                     sampler(SamplerBindingType::Filtering),
                     // The settings uniform that will control the effect
                     uniform_buffer::<U>(true),
+                    // The view uniform
+                    uniform_buffer::<ViewUniform>(true),
                 ),
             ),
         );
 
         // We can create the sampler here since it won't change at runtime and doesn't depend on the view
         let sampler = render_device.create_sampler(&SamplerDescriptor::default());
-
 
         // Get the shader handle
         let shader = world.load_asset(plugin_settings.shader_path);
@@ -306,7 +352,7 @@ impl <U: Clone + Send + Sync + ShaderType + 'static, R: Hash + Eq + Clone + Rend
                 zero_initialize_workgroup_memory: false,
             });
 
-        SkyPipeline::<U, R> {
+        PostProcessPipeline::<U, R> {
             layout,
             sampler,
             pipeline_id,
