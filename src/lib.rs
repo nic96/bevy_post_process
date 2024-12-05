@@ -3,7 +3,6 @@ use bevy::render::view::{ViewUniform, ViewUniformOffset, ViewUniforms};
 use bevy::{
     core_pipeline::{
         core_3d::graph::{Core3d, Node3d},
-        fullscreen_vertex_shader::fullscreen_shader_vertex_state,
     },
     ecs::query::QueryItem,
     prelude::*,
@@ -39,6 +38,7 @@ impl<U: Clone, R: Debug + Hash + PartialEq + Eq + Clone + RenderLabel> PostProce
         label: R,
         debug_label: Option<&'static str>,
         bind_group_layout_label: &'static str,
+        vertex_state: VertexState,
     ) -> Self {
         Self {
             post_process_plugin_settings: PostProcessPluginSettings::<U, R> {
@@ -46,6 +46,7 @@ impl<U: Clone, R: Debug + Hash + PartialEq + Eq + Clone + RenderLabel> PostProce
                 label,
                 debug_label,
                 bind_group_layout_label,
+                vertex_state,
                 phantom_data: PhantomData,
             },
         }
@@ -134,6 +135,7 @@ where
     /// Debug label of the render pass. This will show up in graphics debuggers for easy identification.
     debug_label: Option<&'static str>,
     bind_group_layout_label: &'static str,
+    vertex_state: VertexState,
     phantom_data: PhantomData<U>,
 }
 
@@ -303,7 +305,7 @@ impl<U: Clone + Send + Sync + ShaderType + 'static, R: Hash + Eq + Clone + Rende
             plugin_settings.bind_group_layout_label,
             &BindGroupLayoutEntries::sequential(
                 // The layout entries will only be visible in the fragment stage
-                ShaderStages::FRAGMENT,
+                ShaderStages::VERTEX_FRAGMENT,
                 (
                     // The screen texture
                     texture_2d(TextureSampleType::Float { filterable: true }),
@@ -330,7 +332,7 @@ impl<U: Clone + Send + Sync + ShaderType + 'static, R: Hash + Eq + Clone + Rende
                 label: plugin_settings.debug_label.map(Into::into),
                 layout: vec![layout.clone()],
                 // This will setup a fullscreen triangle for the vertex state
-                vertex: fullscreen_shader_vertex_state(),
+                vertex: plugin_settings.vertex_state,
                 fragment: Some(FragmentState {
                     shader,
                     shader_defs: vec![],
