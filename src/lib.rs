@@ -103,7 +103,7 @@ impl<
                 // Specify the node ordering.
                 // This will automatically create all required node edges to enforce the given ordering.
                 (
-                    Node3d::Tonemapping,
+                    Node3d::EndMainPass,
                     self.post_process_plugin_settings.label.clone(),
                     Node3d::EndMainPassPostProcessing,
                 ),
