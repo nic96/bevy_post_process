@@ -4,7 +4,6 @@ use bevy::{
     prelude::*,
     render::{extract_component::ExtractComponent, render_resource::*},
 };
-use bevy::core_pipeline::fullscreen_vertex_shader::fullscreen_shader_vertex_state;
 use bevy_post_process::PostProcessPlugin;
 
 const SHADER_ASSET_PATH: &str = "shaders/sky.wgsl";
@@ -21,7 +20,6 @@ fn main() {
                 SkyPipelineLabel,
                 Some("sky_pipeline"),
                 "sky_bind_group_layout",
-                fullscreen_shader_vertex_state()
             ),
         ))
         .add_systems(Startup, setup)
