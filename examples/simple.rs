@@ -4,7 +4,7 @@ use bevy::{
     prelude::*,
     render::{extract_component::ExtractComponent, render_resource::*},
 };
-use bevy_post_process::PostProcessPlugin;
+use bevy_post_process_util::PostProcessPlugin;
 
 const SHADER_ASSET_PATH: &str = "shaders/sky.wgsl";
 

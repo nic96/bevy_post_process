@@ -1,7 +1,8 @@
 [package]
-name = "bevy_post_process"
+name = "bevy_post_process_util"
 version = "0.3.0"
 edition = "2024"
+description = "A simple helper to remove boilerplate when creating a simple post-process shader."
 
 [dependencies]
 bevy = "0.17"
