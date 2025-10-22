@@ -1,10 +1,11 @@
-use std::f32::consts::PI;
+use bevy::core_pipeline::FullscreenShader;
 use bevy::render::render_graph::RenderLabel;
 use bevy::{
     prelude::*,
     render::{extract_component::ExtractComponent, render_resource::*},
 };
 use bevy_post_process_util::PostProcessPlugin;
+use std::f32::consts::PI;
 
 const SHADER_ASSET_PATH: &str = "shaders/sky.wgsl";
 
@@ -12,18 +13,21 @@ const SHADER_ASSET_PATH: &str = "shaders/sky.wgsl";
 struct SkyPipelineLabel;
 
 fn main() {
-    App::new()
-        .add_plugins((
-            DefaultPlugins,
-            PostProcessPlugin::<SkySettings, SkyPipelineLabel>::new(
-                SHADER_ASSET_PATH,
-                SkyPipelineLabel,
-                Some("sky_pipeline"),
-                "sky_bind_group_layout",
-            ),
-        ))
-        .add_systems(Startup, setup)
-        .run();
+    let mut app = App::new();
+    app.add_plugins((DefaultPlugins,))
+        .add_systems(Startup, setup);
+    let fullscreen_shader = app.world_mut().get_resource_or_init::<FullscreenShader>();
+    let vertex_state = fullscreen_shader.to_vertex_state();
+
+    app.add_plugins(PostProcessPlugin::<SkySettings, SkyPipelineLabel>::new(
+        SHADER_ASSET_PATH,
+        SkyPipelineLabel,
+        Some("sky_pipeline"),
+        "sky_bind_group_layout",
+        vertex_state,
+    ));
+
+    app.run();
 }
 
 // This is the component that will get passed to the shader
@@ -35,7 +39,11 @@ struct SkySettings {
 }
 
 /// Set up a simple 3D scene
-fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut mats: ResMut<Assets<StandardMaterial>>) {
+fn setup(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut mats: ResMut<Assets<StandardMaterial>>,
+) {
     // camera
     commands.spawn((
         Camera3d::default(),
@@ -53,7 +61,12 @@ fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut mats: Res
     commands.spawn((
         Mesh3d(meshes.add(Cuboid::default())),
         MeshMaterial3d(mats.add(Color::srgb(0.8, 0.7, 0.6))),
-        Transform::from_xyz(0.0, 0.5, 0.0).with_rotation(Quat::from_euler(EulerRot::XYZ, PI / 4., PI / 4., 0.)),
+        Transform::from_xyz(0.0, 0.5, 0.0).with_rotation(Quat::from_euler(
+            EulerRot::XYZ,
+            PI / 4.,
+            PI / 4.,
+            0.,
+        )),
     ));
     // light
     commands.spawn(DirectionalLight {

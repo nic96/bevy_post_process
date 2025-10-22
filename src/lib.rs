@@ -1,9 +1,7 @@
 use bevy::render::render_resource::encase::internal::WriteInto;
 use bevy::render::view::{ViewUniform, ViewUniformOffset, ViewUniforms};
 use bevy::{
-    core_pipeline::{
-        core_3d::graph::{Core3d, Node3d},
-    },
+    core_pipeline::core_3d::graph::{Core3d, Node3d},
     ecs::query::QueryItem,
     prelude::*,
     render::{
@@ -12,7 +10,7 @@ use bevy::{
             UniformComponentPlugin,
         },
         render_graph::{
-            NodeRunError, RenderGraphExt, RenderGraphContext, RenderLabel, ViewNode, ViewNodeRunner,
+            NodeRunError, RenderGraphContext, RenderGraphExt, RenderLabel, ViewNode, ViewNodeRunner,
         },
         render_resource::{
             binding_types::{sampler, texture_2d, uniform_buffer},
@@ -26,7 +24,6 @@ use bevy::{
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
-use bevy::core_pipeline::FullscreenShader;
 
 /// It is generally encouraged to set up post processing effects as a plugin
 pub struct PostProcessPlugin<U: Clone, R: Debug + Hash + PartialEq + Eq + Clone + RenderLabel> {
@@ -39,6 +36,7 @@ impl<U: Clone, R: Debug + Hash + PartialEq + Eq + Clone + RenderLabel> PostProce
         label: R,
         debug_label: Option<&'static str>,
         bind_group_layout_label: &'static str,
+        vertex_state: VertexState,
     ) -> Self {
         Self {
             post_process_plugin_settings: PostProcessPluginSettings::<U, R> {
@@ -47,6 +45,7 @@ impl<U: Clone, R: Debug + Hash + PartialEq + Eq + Clone + RenderLabel> PostProce
                 debug_label,
                 bind_group_layout_label,
                 phantom_data: PhantomData,
+                vertex_state,
             },
         }
     }
@@ -135,6 +134,7 @@ where
     debug_label: Option<&'static str>,
     bind_group_layout_label: &'static str,
     phantom_data: PhantomData<U>,
+    vertex_state: VertexState,
 }
 
 // The post process node used for the render graph
@@ -324,8 +324,6 @@ impl<U: Clone + Send + Sync + ShaderType + 'static, R: Hash + Eq + Clone + Rende
         // Get the shader handle
         let shader = world.load_asset(plugin_settings.shader_path);
         
-        let fullscreen_shader = world.resource::<FullscreenShader>();
-
         let pipeline_id = world
             .resource::<PipelineCache>()
             // This will add the pipeline to the cache and queue its creation
@@ -333,7 +331,7 @@ impl<U: Clone + Send + Sync + ShaderType + 'static, R: Hash + Eq + Clone + Rende
                 label: plugin_settings.debug_label.map(Into::into),
                 layout: vec![layout.clone()],
                 // This will setup a fullscreen triangle for the vertex state
-                vertex: fullscreen_shader.to_vertex_state(),
+                vertex: plugin_settings.vertex_state,
                 fragment: Some(FragmentState {
                     shader,
                     shader_defs: vec![],
